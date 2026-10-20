@@ -1,177 +1,116 @@
-# Steady-State Heat Conduction via Gauss–Jordan Elimination
+# Gauss–Jordan Elimination from Scratch
 
-A conducting rod with fixed end temperatures and a distributed heat source
-reaches a unique steady temperature field. Finite differences turn that
-physics into a linear system $A\mathbf{T}=\mathbf{b}$; Gauss–Jordan
-elimination with partial pivoting recovers $\mathbf{T}$.
+Solve a dense linear system $A x = b$ by transforming the augmented matrix
+$[A \mid b]$ into reduced row echelon form $[I \mid x]$, implemented
+explicitly with partial pivoting — no black-box linear solver on the critical
+path.
 
 <p align="center">
-  <img src="figures/07_workflow_summary.png" alt="Workflow from assembly to temperature field" width="820"/>
+  <img src="figures/07_workflow_summary.png" alt="Workflow from augmented matrix to solution" width="820"/>
 </p>
 
 ---
 
-## 1. The physical problem
+## 1. The problem
 
-Consider a thin rod of length $L$ and conductivity $\kappa > 0$. In the
-steady state the temperature $T(x)$ obeys
-
-$$
--\kappa\, T''(x) = q(x), \qquad x \in (0,L),
-$$
-
-with Dirichlet data
+Given $A \in \mathbb{R}^{n \times n}$ nonsingular and $b \in \mathbb{R}^{n}$,
+find the unique $x$ satisfying
 
 $$
-T(0)=T_L, \qquad T(L)=T_R.
+A x = b.
 $$
 
-Here $q(x)$ is a volumetric heat source. The unknown of interest is the
-interior temperature profile — how heat injected along the rod redistributes
-until the ends’ fixed temperatures are compatible with a stationary balance.
+The working object is the augmented matrix $[A \mid b]$. Elementary row
+operations reduce it until the left block is the identity and the right block
+is the solution.
 
 <p align="center">
-  <img src="figures/01_problem_schematic.png" alt="Rod schematic with source and Dirichlet ends" width="720"/>
-</p>
-
-When $q(x)\equiv q_0$ is constant, the exact solution is the parabola
-
-$$
-T(x)=T_L+(T_R-T_L)\frac{x}{L}+\frac{q_0}{2\kappa}\,x(L-x).
-$$
-
-That closed form is the reference against which the discrete solve is judged
-in the constant-source experiments below.
-
----
-
-## 2. From continuum to linear algebra
-
-Uniform nodes $x_i=ih$ with $h=L/(n+1)$ and the central second difference
-
-$$
-T''(x_i)\approx\frac{T_{i-1}-2T_i+T_{i+1}}{h^2}
-$$
-
-produce the discrete Laplacian system $A\mathbf{T}=\mathbf{b}$. The matrix
-$A$ is symmetric, positive definite, and **tridiagonal** — nearest-neighbor
-coupling only — while boundary temperatures enter exclusively through the
-load vector $\mathbf{b}$:
-
-$$
-b_i=q(x_i)+\delta_{i1}\frac{\kappa T_L}{h^2}+\delta_{in}\frac{\kappa T_R}{h^2}.
-$$
-
-<p align="center">
-  <img src="figures/02_matrix_structure.png" alt="Heatmap and sparsity of A" width="820"/>
-</p>
-
-The left panel shows the numerical entries of $A$ (positive diagonal,
-negative off-diagonals). The right panel isolates the nonzero pattern: a
-single band of width three. That structure is not an implementation
-artifact — it is the discrete signature of a second-order local operator.
-
----
-
-## 3. Exploratory diagnostics
-
-Before solving, two spectral facts set expectations.
-
-1. **Conditioning.** For this Laplacian, $\kappa_2(A)$ grows like $O(n^2)$
-   as the mesh is refined. Finer grids resolve $T(x)$ better, but the linear
-   system becomes progressively more sensitive.
-2. **Spectrum.** All eigenvalues are positive; refining the mesh fills in
-   the same spectral shape at higher index, consistent with a discrete
-   second-derivative operator on a fixed interval.
-
-<p align="center">
-  <img src="figures/03_spectrum_conditioning.png" alt="Condition number and eigenvalues of A" width="820"/>
-</p>
-
-The load side of the story is equally concrete. A localized heater
-$q(x)$ concentrates energy near mid-rod; after lifting the Dirichlet data,
-the assembled $\mathbf{b}$ inherits that bump plus boundary corrections at
-the first and last nodes.
-
-<p align="center">
-  <img src="figures/04_source_and_rhs.png" alt="Heat source and assembled right-hand side" width="820"/>
+  <img src="figures/01_problem_statement.png" alt="Coefficient matrix, RHS, and augmented matrix" width="820"/>
 </p>
 
 ---
 
-## 4. Solving $A\mathbf{T}=\mathbf{b}$ by Gauss–Jordan
+## 2. Exploratory view of the system
 
-Gauss–Jordan elimination transforms the augmented matrix $[A\mid\mathbf{b}]$
-into reduced row echelon form $[I\mid\mathbf{T}]$:
+Before eliminating, two quantities set expectations:
 
-1. **Partial pivoting** — at step $k$, swap in the largest available
-   $|a_{pk}|$ with $p\ge k$.
-2. **Normalize** the pivot row so $a_{kk}=1$.
-3. **Eliminate** above and below, clearing column $k$.
+- **Condition number** $\kappa_2(A)$ — how sensitive $x$ is to perturbations.
+  Hilbert matrices blow up rapidly with $n$; well-conditioned SPD draws stay
+  moderate.
+- **Residual after a solve** on those SPD draws — a sanity check that the
+  implementation closes $A x - b$ near machine precision when the system is
+  reasonable.
 
-When $A$ is nonsingular the last column is the unique discrete temperature
-vector. The implementation lives in `gauss_jordan/` and is deliberately
-agnostic of the heat model: any dense $A\mathbf{x}=\mathbf{b}$ follows the
-same path.
+<p align="center">
+  <img src="figures/02_exploratory_conditioning.png" alt="Conditioning and residuals vs dimension" width="820"/>
+</p>
 
 ---
 
-## 5. Physical results
+## 3. The elimination process
 
-For a constant source the finite-difference stencil is **exact on
-polynomials of degree ≤ 2**. Consequently the numerical profile overlays the
-analytic parabola up to round-off; the pointwise difference fluctuates at
-machine precision rather than at the level of truncation error.
+For each column $k = 1,\ldots,n$ the algorithm:
+
+1. **partially pivots** — swaps in the largest available $|a_{ik}|$ with
+   $i \ge k$;
+2. **normalizes** the pivot row so the diagonal entry is $1$;
+3. **eliminates** above and below, clearing column $k$.
+
+The figure below shows a $3 \times 3$ system after each column is processed.
+The dashed line separates $A$ from $b$; the final left block approaches $I$.
 
 <p align="center">
-  <img src="figures/05_temperature_solution.png" alt="Temperature field and pointwise error" width="820"/>
+  <img src="figures/03_elimination_steps.png" alt="Augmented matrix after each pivot column" width="900"/>
 </p>
-
-The left panel is the physical answer: with equal end temperatures, the
-distributed source lifts a clear parabolic arch in the interior. The right
-panel confirms that, for this particular $q$, disagreement with the continuum
-solution is numerical noise — not modeling error.
 
 ---
 
-## 6. Verification along two axes
+## 4. Why partial pivoting matters
 
-To expose genuine discretization error, replace the constant source by
-
-$$
-q(x)=A\sin\!\left(\frac{\pi x}{L}\right),
-$$
-
-whose exact temperature is known in closed form. Refining $h$ then recovers
-the expected **second-order** spatial convergence of central differences,
-while the algebraic residual $\|\mathbf{r}\|_2/\|\mathbf{b}\|_2$ after
-Gauss–Jordan stays near machine epsilon across all resolutions.
+A nonsingular matrix can still have a zero on the diagonal. Naïve elimination
+would divide by that entry and fail; partial pivoting swaps a nonzero row into
+place and continues. The recovered $x$ then matches a reference dense solve.
 
 <p align="center">
-  <img src="figures/06_convergence_residuals.png" alt="Convergence rate and residuals" width="820"/>
+  <img src="figures/04_pivoting.png" alt="Zero diagonal entry handled by partial pivoting" width="820"/>
 </p>
+
+---
+
+## 5. Result: solution and residual
+
+Reading the last column of the RREF yields $x$. Comparing against
+`numpy.linalg.solve` on the same system, and inspecting $r = A x - b$,
+separates **solver fidelity** from any modeling concerns — here there is only
+the linear algebra.
+
+<p align="center">
+  <img src="figures/05_solution_residual.png" alt="Solution components and residual" width="820"/>
+</p>
+
+<p align="center">
+  <img src="figures/06_rref_identity.png" alt="RREF left block is identity, right block is x" width="780"/>
+</p>
+
+When $A$ is nonsingular, the left block of the RREF is $I$ and the right
+block is exactly $x$.
 
 | Check | Observation |
 | --- | --- |
-| Constant $q$ vs. parabola | Agreement to $\sim 10^{-13}$ (stencil exactness) |
-| Sinusoidal $q$ vs. mesh size | Error slope matches $O(h^2)$ |
-| Residual of $A\mathbf{T}-\mathbf{b}$ | $\sim 10^{-15}$ across tested $n$ |
-| $\kappa_2(A)$ | Monotone growth with $n$, as predicted |
-
-Together these checks separate **modeling error** (how well the grid
-represents the PDE) from **solver fidelity** (how accurately elimination
-satisfies the discrete equations).
+| Agreement with NumPy | Matching solution entries within tight tolerance |
+| Relative residual $\|r\|_2/\|b\|_2$ | Near machine epsilon on well-conditioned tests |
+| Zero-diagonal system | Solved correctly only with partial pivoting |
+| Singular $A$ | Raises `LinAlgError` when no admissible pivot exists |
 
 ---
 
-## 7. Repository layout
+## 6. Repository layout
 
 ```text
-gauss_jordan/     # Gauss–Jordan solver + residual diagnostics
-models/           # heat-rod assembly (physics → A, b)
+gauss_jordan/     # from-scratch elimination + solve API
 scripts/          # figure generation and case-study runner
-tests/            # solver and model tests
-docs/             # mathematical formulation and architecture notes
+tests/            # correctness, pivoting, step history
+docs/             # mathematical formulation and architecture
 figures/          # plots embedded above
 ```
 
@@ -180,7 +119,7 @@ Further detail: [mathematical formulation](docs/mathematical_formulation.md),
 
 ---
 
-## 8. Quick start
+## 7. Quick start
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -191,12 +130,11 @@ PYTHONPATH=. python scripts/generate_figures.py
 PYTHONPATH=. pytest tests -q
 ```
 
-Example summary from the constant-source case ($n=40$, equal Dirichlet ends):
+Example output on the $3 \times 3$ demo system:
 
 ```text
-condition κ₂(A)      : ~6.8e+02
-relative residual    : ~1e-15
-max error vs exact   : ~1e-13
+solution x           : [ 2.  3. -1.]
+relative residual    : ~1e-16
 ```
 
 ---
@@ -205,8 +143,7 @@ max error vs exact   : ~1e-13
 
 - Burden, R. L. & Faires, J. D. *Numerical Analysis* — Gauss–Jordan
   elimination and pivoting.
-- LeVeque, R. J. *Finite Difference Methods for Ordinary and Partial
-  Differential Equations* — second-difference Laplacians and $O(h^2)$
-  accuracy.
-- Strang, G. *Computational Science and Engineering* — discrete
-  conservation and tridiagonal structure of 1-D diffusion.
+- Trefethen, L. N. & Bau, D. *Numerical Linear Algebra* — conditioning and
+  stability of elimination.
+- Strang, G. *Introduction to Linear Algebra* — reduced row echelon form and
+  the meaning of $[I \mid x]$.

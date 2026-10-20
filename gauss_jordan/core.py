@@ -1,24 +1,50 @@
-"""Core Gauss–Jordan elimination with partial pivoting.
+"""From-scratch Gauss–Jordan elimination with partial pivoting.
 
-Transforms an augmented matrix ``[A | b]`` into reduced row echelon form
-(RREF) so that the solution of ``A x = b`` can be read from the last column
-when ``A`` is nonsingular.
+Given a nonsingular square system ``A x = b``, the algorithm transforms the
+augmented matrix ``[A | b]`` into reduced row echelon form ``[I | x]``, from
+which the solution is read in the last column.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import numpy as np
 from numpy.typing import NDArray
-
 
 ArrayF = NDArray[np.floating]
 
 
-def _partial_pivot(augmented: ArrayF, column: int, n_rows: int) -> None:
-    """Swap row ``column`` with the row of largest |pivot| below it (in-place)."""
+@dataclass
+class EliminationStep:
+    """Snapshot of the augmented matrix after one pivot column is processed."""
+
+    column: int
+    pivot_row: int
+    pivot_value: float
+    swapped: bool
+    matrix: ArrayF
+
+
+@dataclass
+class EliminationResult:
+    """Final RREF together with the sequence of intermediate states."""
+
+    rref: ArrayF
+    steps: list[EliminationStep] = field(default_factory=list)
+
+    @property
+    def solution(self) -> ArrayF:
+        return self.rref[:, -1].copy()
+
+
+def _partial_pivot(augmented: ArrayF, column: int, n_rows: int) -> tuple[int, bool]:
+    """Swap row ``column`` with the largest-magnitude pivot candidate below it."""
     pivot_row = column + int(np.argmax(np.abs(augmented[column:n_rows, column])))
-    if pivot_row != column:
+    swapped = pivot_row != column
+    if swapped:
         augmented[[column, pivot_row]] = augmented[[pivot_row, column]]
+    return pivot_row, swapped
 
 
 def gauss_jordan_eliminate(
@@ -26,8 +52,9 @@ def gauss_jordan_eliminate(
     b: ArrayF,
     *,
     pivot_tol: float = 1e-12,
-) -> ArrayF:
-    """Return the RREF of the augmented system ``[A | b]``.
+    record_steps: bool = False,
+) -> ArrayF | EliminationResult:
+    """Reduce ``[A | b]`` to RREF by Gauss–Jordan elimination.
 
     Parameters
     ----------
@@ -37,12 +64,10 @@ def gauss_jordan_eliminate(
         Right-hand side of shape ``(n,)`` or ``(n, 1)``.
     pivot_tol:
         Absolute tolerance below which a pivot is treated as singular.
-
-    Returns
-    -------
-    ndarray
-        Augmented matrix of shape ``(n, n + 1)`` in reduced row echelon form.
-        For a nonsingular ``A``, the last column equals the unique solution.
+    record_steps:
+        If ``True``, return an :class:`EliminationResult` that also stores
+        a snapshot after each pivot column. Otherwise return only the RREF
+        array (shape ``(n, n + 1)``).
     """
     A = np.asarray(A, dtype=float)
     b = np.asarray(b, dtype=float).reshape(-1)
@@ -54,9 +79,10 @@ def gauss_jordan_eliminate(
 
     n = A.shape[0]
     augmented = np.hstack([A.copy(), b.reshape(n, 1)])
+    steps: list[EliminationStep] = []
 
     for col in range(n):
-        _partial_pivot(augmented, col, n)
+        pivot_row, swapped = _partial_pivot(augmented, col, n)
         pivot = augmented[col, col]
 
         if abs(pivot) < pivot_tol:
@@ -74,6 +100,19 @@ def gauss_jordan_eliminate(
             if factor != 0.0:
                 augmented[row, :] -= factor * augmented[col, :]
 
+        if record_steps:
+            steps.append(
+                EliminationStep(
+                    column=col,
+                    pivot_row=pivot_row,
+                    pivot_value=float(pivot),
+                    swapped=swapped,
+                    matrix=augmented.copy(),
+                )
+            )
+
+    if record_steps:
+        return EliminationResult(rref=augmented, steps=steps)
     return augmented
 
 
@@ -82,10 +121,7 @@ def reduced_row_echelon_form(
     *,
     pivot_tol: float = 1e-12,
 ) -> ArrayF:
-    """Compute the RREF of a single matrix ``A`` (no right-hand side).
-
-    Useful for inspecting the algebraic structure of ``A`` itself.
-    """
+    """Compute the RREF of a single matrix ``A`` (no right-hand side)."""
     A = np.asarray(A, dtype=float)
     n, m = A.shape
     work = A.copy()
