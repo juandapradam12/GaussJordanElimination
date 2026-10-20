@@ -3,10 +3,11 @@
 Solve a dense linear system $A x = b$ by transforming the augmented matrix
 $[A \mid b]$ into reduced row echelon form $[I \mid x]$, implemented
 explicitly with partial pivoting — no black-box linear solver on the critical
-path.
+path. The same reduction yields $\det(A)$ from the pivots and $A^{-1}$ from
+$[A \mid I]$.
 
 <p align="center">
-  <img src="figures/07_workflow_summary.png" alt="Workflow from augmented matrix to solution" width="820"/>
+  <img src="figures/09_workflow_summary.png" alt="Workflow from augmented matrix to solution" width="820"/>
 </p>
 
 ---
@@ -56,8 +57,8 @@ For each column $k = 1,\ldots,n$ the algorithm:
 2. **normalizes** the pivot row so the diagonal entry is $1$;
 3. **eliminates** above and below, clearing column $k$.
 
-The figure below shows a $3 \times 3$ system after each column is processed.
-The dashed line separates $A$ from $b$; the final left block approaches $I$.
+The product of the pre-normalization pivots, times $(-1)^{n_{\mathrm{swaps}}}$,
+is $\det(A)$.
 
 <p align="center">
   <img src="figures/03_elimination_steps.png" alt="Augmented matrix after each pivot column" width="900"/>
@@ -65,51 +66,75 @@ The dashed line separates $A$ from $b$; the final left block approaches $I$.
 
 ---
 
-## 4. Why partial pivoting matters
+## 4. Partial pivoting as stability
 
-A nonsingular matrix can still have a zero on the diagonal. Naïve elimination
-would divide by that entry and fail; partial pivoting swaps a nonzero row into
-place and continues. The recovered $x$ then matches a reference dense solve.
+A tiny leading pivot need not make $A$ singular, but dividing by it amplifies
+round-off. On a system with $a_{11} = 10^{-12}$ and a known true $x$,
+**partial pivoting** cuts the forward error by orders of magnitude relative to
+naïve diagonal elimination — even when both runs report a small residual.
 
 <p align="center">
-  <img src="figures/04_pivoting.png" alt="Zero diagonal entry handled by partial pivoting" width="820"/>
+  <img src="figures/04_pivoting_accuracy.png" alt="Forward error with and without pivoting" width="820"/>
 </p>
 
 ---
 
-## 5. Result: solution and residual
+## 5. Solution, residual, and RREF byproducts
 
-Reading the last column of the RREF yields $x$. Comparing against
-`numpy.linalg.solve` on the same system, and inspecting $r = A x - b$,
-separates **solver fidelity** from any modeling concerns — here there is only
-the linear algebra.
+Reading the last column of $[I \mid x]$ recovers the solution. Reducing
+$[A \mid I]$ instead recovers $A^{-1}$. Both paths share the same elimination
+kernel.
 
 <p align="center">
   <img src="figures/05_solution_residual.png" alt="Solution components and residual" width="820"/>
 </p>
 
 <p align="center">
-  <img src="figures/06_rref_identity.png" alt="RREF left block is identity, right block is x" width="780"/>
+  <img src="figures/06_rref_byproducts.png" alt="Identity block, solution, and inverse" width="900"/>
 </p>
 
-When $A$ is nonsingular, the left block of the RREF is $I$ and the right
-block is exactly $x$.
+---
+
+## 6. Ill-conditioning: residual is not forward error
+
+On the Hilbert matrix $H_n$ with exact right-hand side $b = H_n\mathbf{1}$,
+the relative residual can stay small while the relative forward error grows
+with $\kappa_2(H_n)$. A trustworthy residual certifies that $Ax\approx b$; it
+does **not** by itself certify that $x$ is close to the continuum truth when
+$A$ is severely ill-conditioned.
+
+<p align="center">
+  <img src="figures/07_hilbert_forward_error.png" alt="Hilbert residual vs forward error" width="820"/>
+</p>
+
+---
+
+## 7. Computational cost
+
+Dense Gauss–Jordan performs $\Theta(n^3)$ arithmetic. Wall-clock time on
+random SPD systems tracks an $O(n^3)$ guide line.
+
+<p align="center">
+  <img src="figures/08_runtime_complexity.png" alt="Runtime versus dimension" width="560"/>
+</p>
 
 | Check | Observation |
 | --- | --- |
-| Agreement with NumPy | Matching solution entries within tight tolerance |
-| Relative residual $\|r\|_2/\|b\|_2$ | Near machine epsilon on well-conditioned tests |
-| Zero-diagonal system | Solved correctly only with partial pivoting |
+| Agreement with NumPy | Matching $x$ on well-conditioned tests |
+| Relative residual | Near machine epsilon when $\kappa_2(A)$ is moderate |
+| Tiny leading pivot | Partial pivoting dominates naïve diagonal on forward error |
+| Hilbert $H_n$ | Residual stays small; forward error tracks $\kappa_2$ |
+| $\det(A)$, $A^{-1}$ | Match `numpy.linalg` on nonsingular draws |
 | Singular $A$ | Raises `LinAlgError` when no admissible pivot exists |
 
 ---
 
-## 6. Repository layout
+## 8. Repository layout
 
 ```text
-gauss_jordan/     # from-scratch elimination + solve API
+gauss_jordan/     # elimination kernel, invert, determinant, solve API
 scripts/          # figure generation and case-study runner
-tests/            # correctness, pivoting, step history
+tests/            # correctness, pivoting, inverse, determinant
 docs/             # mathematical formulation and architecture
 figures/          # plots embedded above
 ```
@@ -119,7 +144,7 @@ Further detail: [mathematical formulation](docs/mathematical_formulation.md),
 
 ---
 
-## 7. Quick start
+## 9. Quick start
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -134,6 +159,7 @@ Example output on the $3 \times 3$ demo system:
 
 ```text
 solution x           : [ 2.  3. -1.]
+det(A)               : ~1
 relative residual    : ~1e-16
 ```
 
@@ -143,7 +169,7 @@ relative residual    : ~1e-16
 
 - Burden, R. L. & Faires, J. D. *Numerical Analysis* — Gauss–Jordan
   elimination and pivoting.
-- Trefethen, L. N. & Bau, D. *Numerical Linear Algebra* — conditioning and
-  stability of elimination.
+- Trefethen, L. N. & Bau, D. *Numerical Linear Algebra* — conditioning,
+  residual vs forward error, stability of elimination.
 - Strang, G. *Introduction to Linear Algebra* — reduced row echelon form and
   the meaning of $[I \mid x]$.
