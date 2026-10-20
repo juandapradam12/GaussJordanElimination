@@ -49,23 +49,56 @@ $$
 
 so the last column is exactly the solution vector.
 
-## Partial pivoting
+## Determinant from pivots
 
-Without pivoting, a zero (or tiny) diagonal entry aborts or destabilizes the
-process even when $A$ is nonsingular. Choosing the largest available pivot at
-each step avoids unnecessary division by small numbers and improves numerical
-stability on dense systems.
-
-## Diagnostics
-
-After computing $x$, the residual
+Let $p_k$ be the pivot used in column $k$ **before** normalization, and let
+$s$ be the number of row swaps. Then
 
 $$
-r = A x - b, \qquad
+\det(A) = (-1)^{s}\prod_{k=1}^{n} p_k.
+$$
+
+## Inverse from $[A \mid I]$
+
+The same reduction applied to the double-width augmentation
+
+$$
+[A \mid I]
+$$
+
+produces
+
+$$
+[I \mid A^{-1}],
+$$
+
+so the right block is the inverse. Equivalently, one solves $A X = I$ for all
+$n$ canonical right-hand sides at once.
+
+## Partial pivoting and stability
+
+Without pivoting, a zero or tiny diagonal entry aborts or destabilizes the
+process even when $A$ is nonsingular. Choosing the largest available pivot at
+each step avoids unnecessary division by small numbers and reduces amplified
+round-off in the computed $x$.
+
+## Residual versus forward error
+
+After computing $\hat x$, the residual
+
+$$
+r = A\hat x - b, \qquad
 \frac{\|r\|_2}{\|b\|_2}
 $$
 
-measures how faithfully the discrete equations are satisfied. The matrix
-2-norm condition number $\kappa_2(A)$ indicates how sensitive $x$ is to
-perturbations in $A$ or $b$; large $\kappa_2$ warns that even a tiny residual
-need not imply a tiny forward error.
+measures consistency with the discrete equations. The forward error
+$\|\hat x - x\|_2 / \|x\|_2$ is controlled in the worst case by
+$\kappa_2(A)\,\|r\|/\|b\|$. On severely ill-conditioned matrices (e.g. Hilbert
+$H_n$), a tiny residual can coexist with a large forward error.
+
+## Complexity
+
+A dense $n \times n$ Gauss–Jordan pass performs $\Theta(n^3)$ arithmetic
+operations — the same leading-order cost class as Gaussian elimination with
+back-substitution, with a larger constant because both upper and lower
+entries are cleared.

@@ -22,10 +22,31 @@ class LinearSolveResult:
     condition_number: float
     relative_residual: float
     rref: ArrayF
+    determinant: float
+    n_swaps: int
 
     @property
     def n(self) -> int:
         return int(self.x.shape[0])
+
+
+def _pack_result(A: ArrayF, b: ArrayF, history: EliminationResult) -> LinearSolveResult:
+    x = history.solution
+    residual = A @ x - b
+    residual_norm = float(np.linalg.norm(residual, ord=2))
+    b_norm = float(np.linalg.norm(b, ord=2))
+    relative_residual = residual_norm / b_norm if b_norm > 0.0 else residual_norm
+
+    return LinearSolveResult(
+        x=x,
+        residual=residual,
+        residual_norm=residual_norm,
+        condition_number=float(np.linalg.cond(A, p=2)),
+        relative_residual=relative_residual,
+        rref=history.rref,
+        determinant=history.determinant,
+        n_swaps=history.n_swaps,
+    )
 
 
 def solve(
@@ -33,6 +54,7 @@ def solve(
     b: ArrayF,
     *,
     pivot_tol: float = 1e-12,
+    pivoting: bool = True,
 ) -> LinearSolveResult:
     """Solve ``A x = b`` and report residual / conditioning diagnostics.
 
@@ -41,25 +63,10 @@ def solve(
     """
     A = np.asarray(A, dtype=float)
     b = np.asarray(b, dtype=float).reshape(-1)
-
-    rref = gauss_jordan_eliminate(A, b, pivot_tol=pivot_tol)
-    assert isinstance(rref, np.ndarray)
-    x = rref[:, -1].copy()
-
-    residual = A @ x - b
-    residual_norm = float(np.linalg.norm(residual, ord=2))
-    b_norm = float(np.linalg.norm(b, ord=2))
-    relative_residual = residual_norm / b_norm if b_norm > 0.0 else residual_norm
-    condition_number = float(np.linalg.cond(A, p=2))
-
-    return LinearSolveResult(
-        x=x,
-        residual=residual,
-        residual_norm=residual_norm,
-        condition_number=condition_number,
-        relative_residual=relative_residual,
-        rref=rref,
+    history = gauss_jordan_eliminate(
+        A, b, pivot_tol=pivot_tol, pivoting=pivoting, record_steps=False
     )
+    return _pack_result(A, b, history)
 
 
 def solve_with_steps(
@@ -67,22 +74,12 @@ def solve_with_steps(
     b: ArrayF,
     *,
     pivot_tol: float = 1e-12,
+    pivoting: bool = True,
 ) -> tuple[LinearSolveResult, EliminationResult]:
     """Solve ``A x = b`` and also return the recorded elimination history."""
-    history = gauss_jordan_eliminate(A, b, pivot_tol=pivot_tol, record_steps=True)
-    assert isinstance(history, EliminationResult)
-
-    residual = A @ history.solution - b
-    residual_norm = float(np.linalg.norm(residual, ord=2))
-    b_norm = float(np.linalg.norm(b, ord=2))
-    relative_residual = residual_norm / b_norm if b_norm > 0.0 else residual_norm
-
-    result = LinearSolveResult(
-        x=history.solution,
-        residual=residual,
-        residual_norm=residual_norm,
-        condition_number=float(np.linalg.cond(A, p=2)),
-        relative_residual=relative_residual,
-        rref=history.rref,
+    A = np.asarray(A, dtype=float)
+    b = np.asarray(b, dtype=float).reshape(-1)
+    history = gauss_jordan_eliminate(
+        A, b, pivot_tol=pivot_tol, pivoting=pivoting, record_steps=True
     )
-    return result, history
+    return _pack_result(A, b, history), history
