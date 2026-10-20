@@ -6,6 +6,7 @@ from gauss_jordan.core import (
     determinant,
     gauss_jordan_eliminate,
     invert,
+    matrix_rank,
     reduced_row_echelon_form,
 )
 from gauss_jordan.solve import LinearSolveResult, solve, solve_with_steps
@@ -16,10 +17,11 @@ __all__ = [
     "determinant",
     "gauss_jordan_eliminate",
     "invert",
+    "matrix_rank",
     "reduced_row_echelon_form",
     "solve",
     "solve_with_steps",
     "LinearSolveResult",
 ]
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
