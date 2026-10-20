@@ -11,94 +11,69 @@ A x = b.
 $$
 
 If $A$ is nonsingular, the solution exists and is unique:
-$x = A^{-1} b$.
+$x = A^{-1} b$. For several right-hand sides collected as columns of
+$B \in \mathbb{R}^{n \times k}$, the same statement reads $A X = B$.
 
 ## Augmented matrix
 
-Gauss–Jordan elimination works on the augmented matrix
-
-$$
-[A \mid b]
-=
-\begin{pmatrix}
-a_{11} & \cdots & a_{1n} & b_1 \\
-\vdots & \ddots & \vdots & \vdots \\
-a_{n1} & \cdots & a_{nn} & b_n
-\end{pmatrix}.
-$$
-
-Elementary row operations (swap, scale, add a multiple of one row to another)
-do not change the solution set of the underlying system.
+Gauss–Jordan elimination works on the augmented matrix $[A \mid b]$ (or
+$[A \mid B]$). Elementary row operations do not change the solution set.
 
 ## Algorithm
 
-For each column $k = 1,\ldots,n$:
+Maintain a pivot-row index $r$, starting at $0$. For each column
+$c = 0,\ldots,n-1$:
 
-1. **Partial pivoting.** Among rows $i = k,\ldots,n$, select the entry of
-   largest magnitude in column $k$ and swap that row with row $k$.
-2. **Normalization.** Divide row $k$ by the pivot so that the diagonal entry
-   becomes $1$.
-3. **Elimination.** For every other row $i \neq k$, subtract
-   $a_{ik}$ times row $k$, clearing column $k$ above and below the pivot.
+1. **Partial pivoting.** Among rows $i = r,\ldots,n-1$, select the entry of
+   largest magnitude in column $c$.
+2. If that entry is below a tolerance, **skip** the column (rank-deficient
+   path) or **raise** (full-rank solve path).
+3. Otherwise swap it into row $r$, **normalize** so the pivot is $1$, and
+   **eliminate** above and below. Then set $r \leftarrow r+1$.
 
-When $A$ is nonsingular, the result is the reduced row echelon form
-
-$$
-[I \mid x],
-$$
-
-so the last column is exactly the solution vector.
+The number of accepted pivots is the numerical **rank**. When
+$\mathrm{rank}(A)=n$, the left block is $I$ and the right block is the
+solution (or the inverse, if the right block started as $I$).
 
 ## Determinant from pivots
 
-Let $p_k$ be the pivot used in column $k$ **before** normalization, and let
-$s$ be the number of row swaps. Then
+Let $p_k$ be the $k$-th accepted pivot **before** normalization and $s$ the
+number of row swaps. If $\mathrm{rank}(A)=n$,
 
 $$
-\det(A) = (-1)^{s}\prod_{k=1}^{n} p_k.
+\det(A) = (-1)^{s}\prod_{k} p_k;
 $$
 
-## Inverse from $[A \mid I]$
+otherwise $\det(A)=0$.
 
-The same reduction applied to the double-width augmentation
+## Growth factor
 
-$$
-[A \mid I]
-$$
-
-produces
+Let $a_{ij}^{(0)}$ be the entries of $A$ and $a_{ij}^{(\ell)}$ the entries of
+the $A$-block after step $\ell$. The growth factor
 
 $$
-[I \mid A^{-1}],
+\rho = \frac{\max_{\ell,i,j}|a_{ij}^{(\ell)}|}{\max_{i,j}|a_{ij}^{(0)}|}
 $$
 
-so the right block is the inverse. Equivalently, one solves $A X = I$ for all
-$n$ canonical right-hand sides at once.
-
-## Partial pivoting and stability
-
-Without pivoting, a zero or tiny diagonal entry aborts or destabilizes the
-process even when $A$ is nonsingular. Choosing the largest available pivot at
-each step avoids unnecessary division by small numbers and reduces amplified
-round-off in the computed $x$.
+measures intermediate swell. Large $\rho$ warns that round-off may be
+amplified even when pivots are nonzero.
 
 ## Residual versus forward error
 
-After computing $\hat x$, the residual
+After computing $\hat x$,
 
 $$
 r = A\hat x - b, \qquad
 \frac{\|r\|_2}{\|b\|_2}
 $$
 
-measures consistency with the discrete equations. The forward error
-$\|\hat x - x\|_2 / \|x\|_2$ is controlled in the worst case by
-$\kappa_2(A)\,\|r\|/\|b\|$. On severely ill-conditioned matrices (e.g. Hilbert
-$H_n$), a tiny residual can coexist with a large forward error.
+measures consistency with the discrete equations. The forward error is
+controlled in the worst case by $\kappa_2(A)\,\|r\|/\|b\|$. On Hilbert
+matrices $H_n$, a tiny residual can coexist with a large forward error.
 
 ## Complexity
 
-A dense $n \times n$ Gauss–Jordan pass performs $\Theta(n^3)$ arithmetic
-operations — the same leading-order cost class as Gaussian elimination with
-back-substitution, with a larger constant because both upper and lower
-entries are cleared.
+Normalizing a pivot row of width $w$ costs $w$ divisions; clearing one other
+row costs $2w$ flops (multiply–add). Summing over all pivots yields
+$\Theta(n^3)$ arithmetic for dense full-rank $n \times n$ systems. The
+implementation tallies these operations exactly as it runs.

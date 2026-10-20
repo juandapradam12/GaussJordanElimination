@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import TwoSlopeNorm
 
-from gauss_jordan import invert, solve, solve_with_steps
+from gauss_jordan import gauss_jordan_eliminate, invert, matrix_rank, solve, solve_with_steps
 
 ROOT = Path(__file__).resolve().parents[1]
 FIGDIR = ROOT / "figures"
@@ -311,41 +311,111 @@ def figure_07_hilbert_forward_error() -> None:
     _save(fig, "07_hilbert_forward_error.png")
 
 
-def figure_08_runtime_complexity() -> None:
+def figure_08_runtime_and_flops() -> None:
     rng = np.random.default_rng(0)
     sizes = np.array([20, 40, 60, 80, 100, 120])
     times = []
+    flops = []
 
     for n in sizes:
         A = rng.normal(size=(int(n), int(n)))
         A = A @ A.T + 0.5 * np.eye(int(n))
         b = rng.normal(size=int(n))
-        # Warm-up + median of a few runs
         solve(A, b)
         samples = []
+        last = None
         for _ in range(3):
             t0 = time.perf_counter()
-            solve(A, b)
+            last = solve(A, b)
             samples.append(time.perf_counter() - t0)
         times.append(float(np.median(samples)))
+        assert last is not None
+        flops.append(last.n_flops)
 
     times = np.asarray(times)
-    # Fit c * n^3 through the last points in log space for a guide line
-    guide = times[-1] * (sizes / sizes[-1]) ** 3
+    flops = np.asarray(flops)
+    time_guide = times[-1] * (sizes / sizes[-1]) ** 3
+    flop_guide = flops[-1] * (sizes / sizes[-1]) ** 3
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.0))
-    ax.loglog(sizes, times, "o-", color=PALETTE["accent"], lw=2, label="Gauss–Jordan wall time")
-    ax.loglog(sizes, guide, "--", color=PALETTE["muted"], lw=1.6, label=r"$O(n^3)$ guide")
-    ax.set_xlabel(r"dimension $n$")
-    ax.set_ylabel("seconds")
-    ax.set_title("Dense Gauss–Jordan cost scales as $O(n^3)$")
-    ax.legend(frameon=False)
-    ax.grid(True, which="both", color=PALETTE["grid"], lw=0.7)
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.9))
+    axes[0].loglog(sizes, times, "o-", color=PALETTE["accent"], lw=2, label="wall time")
+    axes[0].loglog(sizes, time_guide, "--", color=PALETTE["muted"], lw=1.6, label=r"$O(n^3)$ guide")
+    axes[0].set_xlabel(r"dimension $n$")
+    axes[0].set_ylabel("seconds")
+    axes[0].set_title("Measured runtime")
+    axes[0].legend(frameon=False)
+    axes[0].grid(True, which="both", color=PALETTE["grid"], lw=0.7)
+
+    axes[1].loglog(sizes, flops, "s-", color=PALETTE["steel"], lw=2, label="counted flops")
+    axes[1].loglog(sizes, flop_guide, "--", color=PALETTE["muted"], lw=1.6, label=r"$O(n^3)$ guide")
+    axes[1].set_xlabel(r"dimension $n$")
+    axes[1].set_ylabel("arithmetic operations")
+    axes[1].set_title("Exact flop tally from the kernel")
+    axes[1].legend(frameon=False)
+    axes[1].grid(True, which="both", color=PALETTE["grid"], lw=0.7)
+
+    fig.suptitle(r"Cost: wall time and flop count both track $O(n^3)$", y=1.03, fontsize=14)
     fig.tight_layout()
-    _save(fig, "08_runtime_complexity.png")
+    _save(fig, "08_runtime_flops.png")
 
 
-def figure_09_workflow_summary() -> None:
+def figure_09_rank_deficient_rref() -> None:
+    A = np.array(
+        [
+            [1.0, 2.0, 3.0],
+            [2.0, 4.0, 6.0],
+            [1.0, 0.0, 1.0],
+        ]
+    )
+    result = gauss_jordan_eliminate(A, allow_rank_deficient=True)
+    rank = matrix_rank(A)
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.7))
+    im0 = axes[0].imshow(A, cmap="coolwarm", norm=TwoSlopeNorm(vcenter=0.0))
+    for (i, j), val in np.ndenumerate(A):
+        axes[0].text(j, i, f"{val:g}", ha="center", va="center", fontsize=11)
+    axes[0].set_title(r"Rank-deficient $A$ (rows 1 $= 2\cdot$ row 0)")
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+
+    im1 = axes[1].imshow(result.rref, cmap="coolwarm", norm=TwoSlopeNorm(vcenter=0.0))
+    for (i, j), val in np.ndenumerate(result.rref):
+        axes[1].text(j, i, f"{val:.2f}", ha="center", va="center", fontsize=10)
+    axes[1].set_title(rf"RREF — numerical rank $= {rank}$")
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    fig.suptitle("Singular systems: skip zero pivots, report rank", y=1.05, fontsize=14)
+    fig.tight_layout()
+    _save(fig, "09_rank_deficient_rref.png")
+
+
+def figure_10_growth_factor() -> None:
+    rng = np.random.default_rng(11)
+    sizes = np.array([5, 10, 15, 20, 25, 30])
+    growth_pivot = []
+    growth_none = []
+
+    for n in sizes:
+        # Mildly scaled random matrices so no-pivot usually survives.
+        A = rng.normal(size=(int(n), int(n)))
+        A = A + 2.0 * np.eye(int(n))
+        b = rng.normal(size=int(n))
+        growth_pivot.append(solve(A, b, pivoting=True).growth_factor)
+        growth_none.append(solve(A, b, pivoting=False).growth_factor)
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.0))
+    ax.semilogy(sizes, growth_none, "o-", color=PALETTE["muted"], lw=2, label="no pivoting")
+    ax.semilogy(sizes, growth_pivot, "s-", color=PALETTE["accent"], lw=2, label="partial pivoting")
+    ax.set_xlabel(r"dimension $n$")
+    ax.set_ylabel(r"growth factor $\max|a_{ij}| / \max|a_{ij}^{(0)}|$")
+    ax.set_title("Element growth during elimination")
+    ax.legend(frameon=False)
+    ax.grid(True, color=PALETTE["grid"], lw=0.7)
+    fig.tight_layout()
+    _save(fig, "10_growth_factor.png")
+
+
+def figure_11_workflow_summary() -> None:
+
     A, b = _demo_system()
     result, history = solve_with_steps(A, b)
     augmented0 = np.hstack([A, b.reshape(-1, 1)])
@@ -385,7 +455,7 @@ def figure_09_workflow_summary() -> None:
         fontsize=14,
         y=0.98,
     )
-    _save(fig, "09_workflow_summary.png")
+    _save(fig, "11_workflow_summary.png")
 
 
 def main() -> None:
@@ -397,8 +467,10 @@ def main() -> None:
     figure_05_solution_and_residual()
     figure_06_rref_and_inverse()
     figure_07_hilbert_forward_error()
-    figure_08_runtime_complexity()
-    figure_09_workflow_summary()
+    figure_08_runtime_and_flops()
+    figure_09_rank_deficient_rref()
+    figure_10_growth_factor()
+    figure_11_workflow_summary()
 
 
 if __name__ == "__main__":
